@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-    <script src="https://html5-qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/dist/html5-qrcode.min.js"></script>
     <style>
         :root {
             --primary: #4361ee;
@@ -674,14 +674,10 @@
             }
         }
         
-        // Generate QR code untuk presensi
+        // Generate QR code untuk presensi - DIPERBAIKI
         function generateQRCode() {
-            // Hentikan QR code sebelumnya jika ada
-            if (activeQRCode) {
-                QRCode.clear();
-                qrcodeElement.innerHTML = '';
-                activeQRCode = null;
-            }
+            // Bersihkan QR code sebelumnya jika ada
+            qrcodeElement.innerHTML = '';
             
             // Buat session baru
             activeSession = generateId();
@@ -691,41 +687,57 @@
                 expiry: new Date().getTime() + (30 * 60 * 1000) // 30 menit dari sekarang
             };
             
-            // Generate QR code
-            activeQRCode = new QRCode(qrcodeElement, {
-                text: JSON.stringify(sessionData),
-                width: 200,
-                height: 200,
-                colorDark: "#000000",
-                colorLight: "#ffffff",
-                correctLevel: QRCode.CorrectLevel.H
-            });
+            // Konversi data menjadi string JSON
+            const sessionDataString = JSON.stringify(sessionData);
             
-            // Tampilkan info session
-            sessionIdElement.textContent = activeSession;
-            const expiryDate = new Date(sessionData.expiry);
-            expiryTimeElement.textContent = `${formatTime(expiryDate)} (${formatDate(expiryDate)})`;
-            
-            // Tampilkan container QR
-            qrContainer.style.display = 'block';
-            
-            // Simpan session aktif
-            localStorage.setItem('activeSession', JSON.stringify(sessionData));
-            
-            showNotification('QR Code berhasil dibuat! Berlaku selama 30 menit.', 'success');
+            // Generate QR code menggunakan library yang benar
+            try {
+                // Metode 1: Gunakan QRCode.toCanvas
+                QRCode.toCanvas(
+                    sessionDataString,
+                    { 
+                        errorCorrectionLevel: 'H',
+                        width: 200,
+                        margin: 1
+                    },
+                    function (err, canvas) {
+                        if (err) {
+                            console.error('Error generating QR code:', err);
+                            showNotification('Gagal membuat QR Code!', 'error');
+                            return;
+                        }
+                        
+                        // Tambahkan canvas ke elemen qrcode
+                        qrcodeElement.appendChild(canvas);
+                        
+                        // Tampilkan info session
+                        sessionIdElement.textContent = activeSession;
+                        const expiryDate = new Date(sessionData.expiry);
+                        expiryTimeElement.textContent = `${formatTime(expiryDate)} (${formatDate(expiryDate)})`;
+                        
+                        // Tampilkan container QR
+                        qrContainer.style.display = 'block';
+                        
+                        // Simpan session aktif
+                        localStorage.setItem('activeSession', JSON.stringify(sessionData));
+                        
+                        showNotification('QR Code berhasil dibuat! Berlaku selama 30 menit.', 'success');
+                    }
+                );
+            } catch (error) {
+                console.error('Error in QR code generation:', error);
+                showNotification('Gagal membuat QR Code!', 'error');
+            }
         }
         
         // Hentikan QR code aktif
         function stopQRCode() {
-            if (activeQRCode) {
-                QRCode.clear();
-                qrcodeElement.innerHTML = '';
-                activeQRCode = null;
-                activeSession = null;
-                qrContainer.style.display = 'none';
-                localStorage.removeItem('activeSession');
-                showNotification('QR Code dihentikan.', 'success');
-            }
+            qrcodeElement.innerHTML = '';
+            activeQRCode = null;
+            activeSession = null;
+            qrContainer.style.display = 'none';
+            localStorage.removeItem('activeSession');
+            showNotification('QR Code dihentikan.', 'success');
         }
         
         // Proses presensi mahasiswa
@@ -736,7 +748,6 @@
             }
             
             const now = new Date().getTime();
-            const sessionTime = new Date(sessionData.timestamp).getTime();
             
             // Cek apakah session masih valid
             if (now > sessionData.expiry) {
@@ -763,7 +774,7 @@
             
             // Tentukan status (hadir/telat)
             let status = 'hadir';
-            const timeDiff = now - sessionTime;
+            const timeDiff = now - sessionData.timestamp;
             const minutesDiff = Math.floor(timeDiff / (1000 * 60));
             
             if (minutesDiff > 15) {
@@ -804,16 +815,22 @@
             return true;
         }
         
-        // Inisialisasi QR code scanner
+        // Inisialisasi QR code scanner - DIPERBAIKI
         function initQRScanner() {
-            if (scanner) {
-                scanner.clear();
-            }
+            // Bersihkan scanner sebelumnya jika ada
+            const readerElement = document.getElementById('reader');
+            readerElement.innerHTML = '';
             
-            scanner = new Html5QrcodeScanner("reader", { 
-                fps: 10, 
-                qrbox: 250 
-            });
+            // Inisialisasi scanner baru
+            scanner = new Html5QrcodeScanner(
+                "reader", 
+                { 
+                    fps: 10, 
+                    qrbox: {width: 250, height: 250},
+                    formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+                },
+                false
+            );
             
             scanner.render(
                 (decodedText) => {
@@ -823,9 +840,13 @@
                         processAttendance(sessionData);
                         
                         // Hentikan scanner setelah berhasil
-                        scanner.clear();
+                        scanner.clear().then(() => {
+                            console.log('Scanner cleared successfully');
+                        }).catch(err => {
+                            console.error('Error clearing scanner:', err);
+                        });
                     } catch (error) {
-                        scanResult.textContent = 'QR Code tidak valid!';
+                        scanResult.textContent = 'QR Code tidak valid! Pastikan Anda memindai QR code yang benar.';
                         scanResult.className = 'alert alert-danger';
                         scanResult.style.display = 'block';
                         showNotification('QR Code tidak valid!', 'error');
@@ -833,6 +854,7 @@
                 },
                 (error) => {
                     // Error handling (biasanya diabaikan)
+                    console.log('Scanner error:', error);
                 }
             );
         }
@@ -860,6 +882,16 @@
             nimInput.value = '';
             namaInput.value = '';
             currentUser = null;
+            
+            // Hentikan scanner jika sedang berjalan
+            if (scanner) {
+                scanner.clear().then(() => {
+                    console.log('Scanner cleared when switching to admin mode');
+                }).catch(err => {
+                    console.error('Error clearing scanner:', err);
+                });
+                scanner = null;
+            }
         });
         
         generateQRBtn.addEventListener('click', generateQRCode);
@@ -893,7 +925,7 @@
             // Inisialisasi scanner
             setTimeout(() => {
                 initQRScanner();
-            }, 100);
+            }, 500); // Delay sedikit untuk memastikan elemen sudah ter-render
             
             showNotification(`Login berhasil! Selamat datang, ${nama}`, 'success');
         });
@@ -911,7 +943,7 @@
                 processAttendance(sessionData);
                 manualCodeInput.value = '';
             } catch (error) {
-                scanResult.textContent = 'Kode presensi tidak valid!';
+                scanResult.textContent = 'Kode presensi tidak valid! Format harus berupa JSON.';
                 scanResult.className = 'alert alert-danger';
                 scanResult.style.display = 'block';
                 showNotification('Kode presensi tidak valid!', 'error');
@@ -926,7 +958,11 @@
             namaInput.value = '';
             
             if (scanner) {
-                scanner.clear();
+                scanner.clear().then(() => {
+                    console.log('Scanner cleared on logout');
+                }).catch(err => {
+                    console.error('Error clearing scanner:', err);
+                });
                 scanner = null;
             }
             
@@ -938,29 +974,40 @@
             // Cek apakah ada session aktif
             const savedSession = localStorage.getItem('activeSession');
             if (savedSession) {
-                const sessionData = JSON.parse(savedSession);
-                const now = new Date().getTime();
-                
-                if (now < sessionData.expiry) {
-                    // Session masih valid, tampilkan QR code
-                    activeSession = sessionData.sessionId;
+                try {
+                    const sessionData = JSON.parse(savedSession);
+                    const now = new Date().getTime();
                     
-                    // Recreate QR code
-                    activeQRCode = new QRCode(qrcodeElement, {
-                        text: savedSession,
-                        width: 200,
-                        height: 200,
-                        colorDark: "#000000",
-                        colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.H
-                    });
-                    
-                    sessionIdElement.textContent = activeSession;
-                    const expiryDate = new Date(sessionData.expiry);
-                    expiryTimeElement.textContent = `${formatTime(expiryDate)} (${formatDate(expiryDate)})`;
-                    qrContainer.style.display = 'block';
-                } else {
-                    // Session sudah kedaluwarsa, hapus
+                    if (now < sessionData.expiry) {
+                        // Session masih valid, tampilkan QR code
+                        activeSession = sessionData.sessionId;
+                        
+                        // Recreate QR code
+                        QRCode.toCanvas(
+                            savedSession,
+                            { 
+                                errorCorrectionLevel: 'H',
+                                width: 200,
+                                margin: 1
+                            },
+                            function (err, canvas) {
+                                if (!err) {
+                                    qrcodeElement.innerHTML = '';
+                                    qrcodeElement.appendChild(canvas);
+                                    
+                                    sessionIdElement.textContent = activeSession;
+                                    const expiryDate = new Date(sessionData.expiry);
+                                    expiryTimeElement.textContent = `${formatTime(expiryDate)} (${formatDate(expiryDate)})`;
+                                    qrContainer.style.display = 'block';
+                                }
+                            }
+                        );
+                    } else {
+                        // Session sudah kedaluwarsa, hapus
+                        localStorage.removeItem('activeSession');
+                    }
+                } catch (error) {
+                    console.error('Error loading saved session:', error);
                     localStorage.removeItem('activeSession');
                 }
             }
